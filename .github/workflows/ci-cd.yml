@@ -78,7 +78,9 @@ jobs:
     name: Push Image
     runs-on: ubuntu-latest
     needs: build-smoke
-    if: github.ref == 'refs/heads/main'
+    # runs only when Docker Hub credentials are configured;
+    # otherwise the stage is skipped and CI stays green
+    if: github.ref == 'refs/heads/main' && secrets.DOCKERHUB_USERNAME != ''
     steps:
       - uses: actions/checkout@v4
 
@@ -110,7 +112,8 @@ jobs:
     name: Deploy to VM
     runs-on: ubuntu-latest
     needs: push
-    if: github.ref == 'refs/heads/main'
+    # runs only when VM hosting credentials are configured
+    if: github.ref == 'refs/heads/main' && secrets.DEPLOY_HOST != ''
     environment: production
     steps:
       - name: Deploy over SSH
