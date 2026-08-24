@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes Lite - Container Orchestration Simulator</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <span class="logo-icon">☸</span>
+                    <h1>Kubernetes Lite</h1>
+                    <span class="badge">Orchestration Simulator</span>
+                </div>
+                <div class="header-stats">
+                    <div class="stat" id="deployment-count">0 Deployments</div>
+                    <div class="stat" id="container-count">0 Containers</div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Deployment Form -->
+            <div class="card deploy-card">
+                <h2>🚀 Deploy New Service</h2>
+                <form id="deploy-form">
+                    <div class="form-group">
+                        <label for="app-name">Service Name</label>
+                        <input type="text" id="app-name" placeholder="e.g., web-server, redis-cache" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="image-name">Docker Image</label>
+                        <input type="text" id="image-name" placeholder="e.g., nginx:alpine, redis:alpine" required>
+                        <div class="image-suggestions">
+                            <span class="suggestion" data-image="nginx:alpine">nginx:alpine</span>
+                            <span class="suggestion" data-image="redis:alpine">redis:alpine</span>
+                            <span class="suggestion" data-image="httpd:alpine">httpd:alpine</span>
+                            <span class="suggestion" data-image="python:3.10-slim">python:3.10-slim</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="replicas">Replicas (1-10)</label>
+                        <input type="number" id="replicas" min="1" max="10" value="2">
+                    </div>
+                    <div class="form-group">
+                        <label for="health-port">Health Check Port (optional, e.g. 80)</label>
+                        <input type="number" id="health-port" min="1" max="65535" placeholder="Leave empty for no HTTP health check">
+                    </div>
+                    <div class="form-group">
+                        <label>Auto-scaling (optional — min / max / target CPU %)</label>
+                        <div class="autoscale-row">
+                            <input type="number" id="auto-min" min="1" max="10" placeholder="min replicas">
+                            <input type="number" id="auto-max" min="1" max="10" placeholder="max replicas">
+                            <input type="number" id="auto-target" min="1" max="100" placeholder="target CPU %">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Deploy Service</button>
+                </form>
+            </div>
+
+            <!-- Deployments Grid -->
+            <div id="deployments-container">
+                <div class="loading">Loading deployments...</div>
+            </div>
+
+            <!-- Event Log -->
+            <div class="card event-log-card">
+                <h2>📋 Orchestration Events</h2>
+                <div class="event-log-header">
+                    <button id="backup-btn" class="btn btn-sm btn-secondary">💾 Backup DB</button>
+                    <button id="clear-events-btn" class="btn btn-sm btn-secondary">Clear Log</button>
+                </div>
+                <div id="event-log" class="event-log">
+                    <div class="event-placeholder">Waiting for events...</div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // API Base URL
+        const API_BASE = '/api';
+        
+        // Auto-refresh interval
+        let refreshInterval = null;
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStatus();
+            refreshInterval = setInterval(loadStatus, 5000);
+            setupEventListeners();
+        });
+        
+        function setupEventListeners() {
+            // Deploy form
+            document.getElementById('deploy-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const name = document.getElementById('app-name').value.trim();
+                const image = document.getElementById('image-name').value.trim();
+                const replicas = parseInt(document.getElementById('replicas').value);
+                const healthPort = parseInt(document.getElementById('health-port').value);
+                const autoMin = parseInt(document.getElementById('auto-min').value);
+                const autoMax = parseInt(document.getElementById('auto-max').value);
+                const autoTarget = parseInt(document.getElementById('auto-target').value);
+
+                if (!name || !image) {
+                    showToast('Please fill in all fields', 'error');
+                    return;
+                }
+
+                const payload = { name, image, replicas, health_port: healthPort || undefined };
+                const autoFields = [autoMin, autoMax, autoTarget];
+                if (autoFields.some(v => !isNaN(v))) {
+                    if (autoFields.some(v => isNaN(v))) {
+                        showToast('Auto-scaling needs min, max AND target CPU', 'error');
+                        return;
+                    }
+                    payload.min_replicas = autoMin;
+                    payload.max_replicas = autoMax;
+                    payload.target_cpu = autoTarget;
+                }
+
+                try {
+                    const response = await fetch(`${API_BASE}/deploy`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        showToast(`Deployed ${name} with ${replicas} replicas`, 'success');
+                        document.getElementById('deploy-form').reset();
+                        loadStatus();
+                    } else {
+                        showToast(data.error || 'Deployment failed', 'error');
+                    }
+                } catch (error) {
+                    showToast('Network error: ' + error.message, 'error');
+                }
+            });
+            
+            // Image suggestions
+            document.querySelectorAll('.suggestion').forEach(el => {
+                el.addEventListener('click', () => {
+                    document.getElementById('image-name').value = el.dataset.image;
+                });
+            });
+            
+            // Clear events
+            document.getElementById('clear-events-btn').addEventListener('click', () => {
+                document.getElementById('event-log').innerHTML = '<div class="event-placeholder">Waiting for events...</div>';
+            });
+
+            // Maintenance: trigger a database snapshot
+            document.getElementById('backup-btn').addEventListener('click', async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/maintenance/backup`, { method: 'POST' });
+                    const data = await response.json();
+                    if (response.ok) {
+                        showToast(`Backup created: ${data.backup.split(/[\\/]/).pop()}`, 'success');
+                        loadStatus();
+                    } else {
+                        showToast(data.error || 'Backup failed', 'error');
+                    }
+                } catch (error) {
+                    showToast('Network error: ' + error.message, 'error');
+                }
+            });
+        }
+        
+        async function loadStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/status`);
+                const data = await response.json();
+                renderDeployments(data.deployments);
+                renderEvents(data.events);
+                updateStats(data.summary);
+            } catch (error) {
+                console.error('Failed to load status:', error);
+                document.getElementById('deployments-container').innerHTML = 
+                    '<div class="error">Failed to connect to backend. Make sure the server is running.</div>';
+            }
+        }
+        
+        function renderDeployments(deployments) {
+            const container = document.getElementById('deployments-container');
+            
+            if (!deployments || deployments.length === 0) {
+                container.innerHTML = `
+                    <div class="card empty-state">
+                        <p>No deployments yet. Create your first deployment above!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = deployments.map(deployment => `
+                <div class="card deployment-card">
+                    <div class="deployment-header">
+                        <div class="deployment-info">
+                            <h3>${escapeHtml(deployment.name)}</h3>
+                            <span class="image-tag">${escapeHtml(deployment.image)}</span>
+                        </div>
+                        <div class="deployment-actions">
+                            <button class="btn btn-sm scale-down" onclick="scaleDeployment('${deployment.name}', ${Math.max(0, deployment.desired - 1)})" ${deployment.desired <= 0 ? 'disabled' : ''}>−</button>
+                            <span class="replica-count">${deployment.running} / ${deployment.desired}</span>
+                            <button class="btn btn-sm scale-up" onclick="scaleDeployment('${deployment.name}', ${deployment.desired + 1})" ${deployment.desired >= 10 ? 'disabled' : ''}>+</button>
+                            <button class="btn btn-sm btn-autoscale" title="Toggle auto-scaling" onclick="toggleAutoscale('${deployment.name}', ${deployment.autoscale && deployment.autoscale.enabled ? 'true' : 'false'})">⚡</button>
+                            <button class="btn btn-sm btn-lb" title="Toggle load balancer" onclick="toggleLb('${deployment.name}', ${deployment.lb ? 'true' : 'false'})">🌐</button>
+                            <button class="btn btn-sm btn-update" onclick="updateDeployment('${deployment.name}')">Update</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteDeployment('${deployment.name}')">Delete</button>
+                        </div>
+                    </div>
+                    <div class="deployment-stats">
+                        <div class="stat-badge heal-badge">🔄 Self-Heals: ${deployment.heal_count || 0}</div>
+                        ${deployment.health_port ? `<div class="stat-badge health-badge">💚 Health: :${deployment.health_port}${deployment.health_path || '/healthz'}</div>` : ''}
+                        ${deployment.autoscale && deployment.autoscale.enabled ? `
+                        <div class="stat-badge auto-badge">⚡ Auto: ${deployment.autoscale.min_replicas}–${deployment.autoscale.max_replicas} @ ${deployment.autoscale.target_cpu}% CPU${deployment.avg_cpu != null ? ` · now ${deployment.avg_cpu}%` : ''}</div>` : ''}
+                        ${deployment.lb ? `<div class="stat-badge lb-badge">🌐 LB :${deployment.lb.port} → :${deployment.lb.target_port}</div>` : ''}
+                    </div>
+                    <div class="containers-grid">
+                        ${deployment.containers.map(container => `
+                            <div class="container-card status-${container.status}">
+                                <div class="container-status ${container.status === 'running' ? 'status-running' : 'status-stopped'}"></div>
+                                <div class="container-name">${escapeHtml(container.name || container.id)}</div>
+                                <div class="container-details">
+                                    <span class="container-id">${container.id}</span>
+                                    <span class="container-uptime">${container.uptime || 'N/A'}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        async function scaleDeployment(name, newReplicas) {
+            if (newReplicas < 0 || newReplicas > 10) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/scale`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, replicas: newReplicas })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showToast(`Scaled ${name} to ${newReplicas} replicas`, 'success');
+                    loadStatus();
+                } else {
+                    showToast(data.error || 'Scale failed', 'error');
+                }
+            } catch (error) {
+                showToast('Network error: ' + error.message, 'error');
+            }
+        }
+        
+        async function updateDeployment(name) {
+            const newImage = prompt(`Enter new image for "${name}":`, 'nginx:alpine');
+            if (!newImage) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, image: newImage })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showToast(`Rolling update ${name} → ${newImage}`, 'success');
+                    loadStatus();
+                } else {
+                    showToast(data.error || 'Update failed', 'error');
+                }
+            } catch (error) {
+                showToast('Network error: ' + error.message, 'error');
+            }
+        }
+
+        async function toggleAutoscale(name, enabled) {
+            let body;
+            if (enabled) {
+                if (!confirm(`Auto-scaling for "${name}" is ON.\nDisable it?`)) return;
+                body = { name, enabled: false };
+            } else {
+                const input = prompt(
+                    `Enable auto-scaling for "${name}"\nEnter: min,max,targetCPU\n(e.g. 2,8,70):`,
+                    '2,8,70'
+                );
+                if (!input) return;
+                const parts = input.split(',').map(s => parseInt(s.trim()));
+                if (parts.length !== 3 || parts.some(p => isNaN(p))) {
+                    showToast('Format must be min,max,target (numbers)', 'error');
+                    return;
+                }
+                body = { name, min_replicas: parts[0], max_replicas: parts[1], target_cpu: parts[2] };
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/autoscale`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showToast(data.autoscale.enabled
+                        ? `Auto-scaling ON for ${name} (${data.autoscale.min_replicas}–${data.autoscale.max_replicas} @ ${data.autoscale.target_cpu}% CPU)`
+                        : `Auto-scaling OFF for ${name}`, 'success');
+                    loadStatus();
+                } else {
+                    showToast(data.error || 'Failed to configure auto-scaling', 'error');
+                }
+            } catch (error) {
+                showToast('Network error: ' + error.message, 'error');
+            }
+        }
+
+        async function toggleLb(name, enabled) {
+            let body;
+            if (enabled) {
+                if (!confirm(`Load balancer for "${name}" is ON.\nDisable it?`)) return;
+                body = { name, enabled: false };
+            } else {
+                const input = prompt(
+                    `Enable load balancing for "${name}"\nBackend port replicas listen on:`,
+                    '80'
+                );
+                if (input === null) return;
+                const targetPort = parseInt(input.trim());
+                if (isNaN(targetPort) || targetPort < 1 || targetPort > 65535) {
+                    showToast('Backend port must be 1-65535', 'error');
+                    return;
+                }
+                body = { name, target_port: targetPort };
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/lb`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showToast(data.lb.enabled
+                        ? `Load balancer ON: http://localhost:${data.lb.port} → :${data.lb.target_port}`
+                        : `Load balancer OFF for ${name}`, 'success');
+                    loadStatus();
+                } else {
+                    showToast(data.error || 'Failed to configure load balancer', 'error');
+                }
+            } catch (error) {
+                showToast('Network error: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteDeployment(name) {
+            if (!confirm(`Are you sure you want to delete deployment "${name}"? All containers will be stopped.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/delete/${name}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    showToast(`Deleted deployment ${name}`, 'success');
+                    loadStatus();
+                } else {
+                    const data = await response.json();
+                    showToast(data.error || 'Delete failed', 'error');
+                }
+            } catch (error) {
+                showToast('Network error: ' + error.message, 'error');
+            }
+        }
+        
+        function renderEvents(events) {
+            const container = document.getElementById('event-log');
+            
+            if (!events || events.length === 0) {
+                container.innerHTML = '<div class="event-placeholder">Waiting for events...</div>';
+                return;
+            }
+            
+            container.innerHTML = events.slice().reverse().map(event => `
+                <div class="event-item event-${event.type.toLowerCase()}">
+                    <span class="event-time">${formatTime(event.timestamp)}</span>
+                    <span class="event-type">[${event.type}]</span>
+                    <span class="event-message">${escapeHtml(event.message)}</span>
+                </div>
+            `).join('');
+        }
+        
+        function updateStats(summary) {
+            if (!summary) return;
+            document.getElementById('deployment-count').textContent = `${summary.deployment_count || 0} Deployments`;
+            document.getElementById('container-count').textContent = `${summary.total_tracked_containers || 0} Containers`;
+        }
+        
+        function showToast(message, type = 'info') {
+            // Simple alert for demo - can be enhanced
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            toast.style.position = 'fixed';
+            toast.style.bottom = '20px';
+            toast.style.right = '20px';
+            toast.style.padding = '12px 20px';
+            toast.style.backgroundColor = type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6';
+            toast.style.color = 'white';
+            toast.style.borderRadius = '8px';
+            toast.style.zIndex = '1000';
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+        
+        function formatTime(isoString) {
+            if (!isoString) return '';
+            const date = new Date(isoString);
+            return date.toLocaleTimeString();
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

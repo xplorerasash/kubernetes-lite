@@ -1,0 +1,47 @@
+# Production compose file for hosting on a VM.
+# Pulls a pre-built image from a registry instead of building locally,
+# so deploys are: pull -> restart. Used by deploy/deploy.sh and CI/CD.
+#
+# Usage:
+#   K8SLITE_IMAGE=dockerhubuser/kubernetes-lite:latest \
+#     docker compose -f deploy/docker-compose.prod.yml up -d
+
+version: '3.8'
+
+services:
+  kubernetes-lite:
+    image: ${K8SLITE_IMAGE:-kubernetes-lite:latest}
+    container_name: kubernetes-lite
+    ports:
+      - "5000:5000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - k8slite-data:/app/data
+    environment:
+      - FLASK_ENV=production
+      - K8SLITE_DB=/app/data/kubernetes_lite.db
+      - K8SLITE_BACKUP_DIR=/app/data/backups
+      - K8SLITE_BACKUP_KEEP=14
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - k8s-lite-net
+
+networks:
+  k8s-lite-net:
+    name: k8s-lite-net
+    driver: bridge
+
+volumes:
+  k8slite-data:

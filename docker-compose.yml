@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  kubernetes-lite:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - k8slite-data:/app/data
+    environment:
+      - FLASK_ENV=production
+      - K8SLITE_DB=/app/data/kubernetes_lite.db
+      - K8SLITE_BACKUP_DIR=/app/data/backups
+      - K8SLITE_BACKUP_KEEP=10
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - k8s-lite-net
+
+networks:
+  k8s-lite-net:
+    name: k8s-lite-net
+    driver: bridge
+
+volumes:
+  k8slite-data:
