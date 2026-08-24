@@ -791,4 +791,10 @@ class Orchestrator:
 
             self.state.remove_deployment(deployment_name)
 
+            # Residual sweep: any labeled container that slipped through
+            # (e.g. created by a concurrent heal, or a silent stop failure)
+            for c in self.docker.list_containers_by_deployment(deployment_name, include_all=True):
+                logger.warning(f"Sweeping leftover container {c['name']}")
+                self.docker.stop_container(c['full_id'])
+
         return {"success": True, "deployment": deployment_name}
