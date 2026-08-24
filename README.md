@@ -1,4 +1,6 @@
 # Kubernetes Lite ☸️
+[![CI/CD](https://github.com/xplorerasash/kubernetes-lite/actions/workflows/ci-cd.yml/badge.svg?branch=main)](https://github.com/xplorerasash/kubernetes-lite/actions/workflows/ci-cd.yml)
+
 
 A miniature container orchestrator — a working, scaled-down Kubernetes built
 from scratch with Flask and the Docker SDK. It manages real Docker containers
