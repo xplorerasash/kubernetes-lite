@@ -55,6 +55,18 @@ class DockerClientWrapper:
             container_id: Docker container ID
         """
         try:
+            # Idempotent naming: clear any stale container (e.g. left exited
+            # by an interrupted operation) squatting on the requested name,
+            # otherwise creation would fail with a 409 conflict forever.
+            try:
+                stale = self.client.containers.get(name)
+                logger.warning(f"Removing stale container {name} before create")
+                stale.remove(force=True)
+            except NotFound:
+                pass
+            except Exception as e:
+                logger.error(f"Could not clear stale container {name}: {e}")
+
             # Pull image if not available locally
             try:
                 self.client.images.get(image)
@@ -189,6 +201,15 @@ class DockerClientWrapper:
         The LB carries no 'deployment' label so it never shows up as a replica.
         """
         try:
+            try:
+                stale = self.client.containers.get(f"{deployment_name}-lb")
+                logger.warning(f"Removing stale container {deployment_name}-lb before create")
+                stale.remove(force=True)
+            except NotFound:
+                pass
+            except Exception as e:
+                logger.error(f"Could not clear stale LB container: {e}")
+
             try:
                 self.client.images.get("nginx:alpine")
             except ImageNotFound:
