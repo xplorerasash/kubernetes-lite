@@ -89,7 +89,7 @@ for ($i = 0; $i -lt 12; $i++) {
 Step "7. Remove load, watch it settle back down"
 $dep = ((Invoke-RestMethod "$Api/status").deployments | Where-Object name -eq $Name)
 foreach ($c in $dep.containers) {
-    docker exec $c.full_id sh -c "kill \$(pidof yes) 2>/dev/null" 2>$null
+    docker exec $c.full_id sh -c 'kill $(pidof yes) 2>/dev/null' 2>$null
 }
 Info "load stopped; scaler will trim toward min=$Min after its cooldown..."
 Start-Sleep 45
