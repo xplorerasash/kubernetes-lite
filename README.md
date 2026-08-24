@@ -128,6 +128,16 @@ curl -X POST http://localhost:5000/api/update \
 
 The dashboard shows live replica states, self-heal counters, and an event log.
 
+### Guided demo (what to show in a presentation)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\demo.ps1
+```
+
+Walks through the whole story with pauses for commentary: deploy →
+load-balanced round-robin → kill-a-replica chaos → self-heal → CPU load →
+live auto-scaling up and back down → teardown, printing the event audit trail.
+
 ## API reference
 
 | Method | Endpoint | Description |
@@ -230,6 +240,7 @@ required; the real-Docker path is exercised by the CI smoke test.
 │   ├── deploy.sh                  # pull image + rolling host-side update
 │   └── docker-compose.prod.yml    # registry-image based production stack
 ├── .github/workflows/ci-cd.yml    # lint→test→build→smoke→push→deploy
+├── scripts/demo.ps1                 # guided live demo (deploy→LB→chaos→autoscale)
 ├── Dockerfile / docker-compose.yml
 └── Makefile                        # make test / up / down / backup ...
 ```
